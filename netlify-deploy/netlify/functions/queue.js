@@ -1,4 +1,4 @@
-// Print queue backend for the South Korea Spotlight name-card app.
+﻿// Print queue backend for the South Korea Spotlight name-card app.
 // Uses Netlify Blobs (built into every Netlify site, no extra account or
 // credentials needed) as the shared storage between guest phones and the
 // host-stand screen.
@@ -15,20 +15,25 @@
 
 const { getStore } = require('@netlify/blobs');
 
-function queueStore() {
+exports.handler = async (event) => {
   const siteID = process.env.BLOBS_SITE_ID;
   const token = process.env.BLOBS_TOKEN;
-  if (siteID && token) {
-    return getStore({ name: 'print-queue', siteID, token });
-  }
-  // Fall back to zero-config auto-injection, in case it works in this environment.
-  return getStore('print-queue');
-}
 
-exports.handler = async (event) => {
-  const store = queueStore();
+  // Surface a clear, specific error instead of letting the Blobs SDK throw
+  // its generic MissingBlobsEnvironmentError, which doesn't tell us WHY the
+  // credentials weren't found.
+  if (!siteID || !token) {
+    return json(500, {
+      error: 'Blobs credentials not available to this function',
+      siteIDPresent: !!siteID,
+      tokenPresent: !!token,
+      hint: 'Check that BLOBS_SITE_ID and BLOBS_TOKEN are scoped to "Functions" (and Production context) in Site configuration -> Environment variables, then trigger a fresh deploy.'
+    });
+  }
 
   try {
+    const store = getStore({ name: 'print-queue', siteID, token });
+
     if (event.httpMethod === 'GET') {
       const { blobs } = await store.list({ prefix: 'order:' });
       const orders = [];
