@@ -1,0 +1,9 @@
+{
+  "name": "korea-spotlight-name-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "South Korea Spotlight name-in-Hangul card generator for Traditions Global Cuisine",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
