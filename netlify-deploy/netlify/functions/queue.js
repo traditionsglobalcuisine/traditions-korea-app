@@ -1,11 +1,11 @@
-﻿// Print queue backend for the South Korea Spotlight name-card app.
-// Uses Netlify Blobs (built into every Netlify site, no extra account or
-// credentials needed) as the shared storage between guest phones and the
+// Print queue backend for the South Korea Spotlight name-card app.
+// Uses Netlify Blobs as the shared storage between guest phones and the
 // host-stand screen.
 //
-// GET    /api/queue          -> list all pending orders
-// POST   /api/queue          -> add a new order (guest tapped "Print")
-// DELETE /api/queue?key=...  -> remove an order (staff tapped "Mark Printed")
+// GET    /api/queue          -> list all orders (queue + archive; front-end splits by `printed`)
+// POST   /api/queue          -> add a new order (guest tapped a print button)
+// PATCH  /api/queue?key=...  -> update an order (fee applied / marked printed)
+// DELETE /api/queue?key=...  -> remove an order entirely (not used by the UI, kept for admin cleanup)
 //
 // NOTE: this site uses a custom base directory (netlify-deploy), which on
 // some Netlify projects prevents the siteID/token from being auto-injected
@@ -19,9 +19,6 @@ exports.handler = async (event) => {
   const siteID = process.env.BLOBS_SITE_ID;
   const token = process.env.BLOBS_TOKEN;
 
-  // Surface a clear, specific error instead of letting the Blobs SDK throw
-  // its generic MissingBlobsEnvironmentError, which doesn't tell us WHY the
-  // credentials weren't found.
   if (!siteID || !token) {
     return json(500, {
       error: 'Blobs credentials not available to this function',
@@ -58,9 +55,32 @@ exports.handler = async (event) => {
         wordKo: String(body.wordKo || '').slice(0, 20),
         nameKo: String(body.nameKo || '').slice(0, 60),
         img: body.img,
-        ts: Date.now()
+        printType: (body.printType === 'magnet') ? 'magnet' : 'card',
+        tableNumber: String(body.tableNumber || '').slice(0, 10),
+        ts: Date.now(),
+        feeApplied: false,
+        feeAppliedAt: null,
+        feeAppliedBy: null,
+        printed: false,
+        printedAt: null,
+        printedBy: null
       });
       return json(200, { ok: true, key });
+    }
+
+    if (event.httpMethod === 'PATCH') {
+      const key = event.queryStringParameters && event.queryStringParameters.key;
+      if (!key) return json(400, { error: 'Missing key' });
+      const existing = await store.get(key, { type: 'json' });
+      if (!existing) return json(404, { error: 'Order not found' });
+      const patch = JSON.parse(event.body || '{}');
+      const allowed = ['feeApplied', 'feeAppliedAt', 'feeAppliedBy', 'printed', 'printedAt', 'printedBy'];
+      const updated = { ...existing };
+      for (const k of allowed) {
+        if (Object.prototype.hasOwnProperty.call(patch, k)) updated[k] = patch[k];
+      }
+      await store.setJSON(key, updated);
+      return json(200, { ok: true });
     }
 
     if (event.httpMethod === 'DELETE') {
