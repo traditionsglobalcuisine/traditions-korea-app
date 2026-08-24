@@ -6,11 +6,27 @@
 // GET    /api/queue          -> list all pending orders
 // POST   /api/queue          -> add a new order (guest tapped "Print")
 // DELETE /api/queue?key=...  -> remove an order (staff tapped "Mark Printed")
+//
+// NOTE: this site uses a custom base directory (netlify-deploy), which on
+// some Netlify projects prevents the siteID/token from being auto-injected
+// into the function. So we supply them explicitly via environment variables
+// (BLOBS_SITE_ID / BLOBS_TOKEN, set in Site configuration -> Environment
+// variables) instead of relying on the zero-config getStore('name') form.
 
 const { getStore } = require('@netlify/blobs');
 
+function queueStore() {
+  const siteID = process.env.BLOBS_SITE_ID;
+  const token = process.env.BLOBS_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: 'print-queue', siteID, token });
+  }
+  // Fall back to zero-config auto-injection, in case it works in this environment.
+  return getStore('print-queue');
+}
+
 exports.handler = async (event) => {
-  const store = getStore('print-queue');
+  const store = queueStore();
 
   try {
     if (event.httpMethod === 'GET') {
