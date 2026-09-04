@@ -862,8 +862,9 @@ let lastName = '';
 let pendingPrintType = null; // 'card' or 'magnet' — set right before the table-number prompt
 
 const PRINT_OPTIONS = {
-  card:   { label: '5×7 Card',   price: 5,  emoji: '🖨' },
-  magnet: { label: '5×7 Magnet', price: 10, emoji: '🧲' }
+  card:     { label: '5×7 Card',     price: 5,  emoji: '🖨' },
+  magnet:   { label: '5×7 Magnet',   price: 10, emoji: '🧲' },
+  download: { label: 'Free Download', price: 0, emoji: '⬇' }
 };
 
 const nameInput = document.getElementById('nameInput');
@@ -942,7 +943,21 @@ downloadBtn.addEventListener('click', () => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  // best-effort usage tracking — never blocks or interrupts the guest's download
+  logDownload(lastName, selectedWord).catch(() => {});
 });
+
+async function logDownload(name, wordKey) {
+  const word = WORDS[wordKey];
+  await fetch('/api/queue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name, wordEn: word.en, wordKo: word.ko,
+      nameKo: nameToHangul(name), img: 'x', printType: 'download'
+    })
+  });
+}
 
 /* ---- table number overlay, shared by both print buttons ---- */
 const tableOverlay = document.getElementById('tableOverlay');
@@ -1206,26 +1221,40 @@ function renderArchiveTab() {
   items.forEach(item => {
     const d = item.data;
     const opt = PRINT_OPTIONS[d.printType] || PRINT_OPTIONS.card;
+    const isDownload = d.printType === 'download';
     const card = document.createElement('div');
     card.className = 'queue-card';
+    const imgHtml = d.img
+      ? `<img src="${d.img}" alt="">`
+      : `<div style="width:64px;height:90px;border-radius:6px;flex-shrink:0;border:1px solid var(--gold);background:#f0e4d0;display:flex;align-items:center;justify-content:center;font-size:22px;">⬇</div>`;
+    const metaLine = isDownload
+      ? `<div class="qmeta">${opt.emoji} ${opt.label}</div>`
+      : `<div class="qmeta">${opt.emoji} ${opt.label} — $${opt.price} · Table <span class="table">${escapeHtml(d.tableNumber || '—')}</span></div>`;
+    const timeLines = isDownload
+      ? `<div class="qtime">Downloaded: ${formatDateTime(d.printedAt)}</div>`
+      : `<div class="qtime">Printed by <b>${escapeHtml(d.printedBy || '—')}</b></div>
+         <div class="qtime">Fee applied: ${formatDateTime(d.feeAppliedAt)}</div>
+         <div class="qtime">Paid: ${formatDateTime(d.printedAt)}</div>`;
+    const actionsHtml = d.img
+      ? `<div class="queue-actions"><button class="qbtn open">Open</button></div>`
+      : '';
     card.innerHTML = `
-      <img src="${d.img}" alt="">
+      ${imgHtml}
       <div class="queue-info">
         <div class="qname">${escapeHtml(d.name)}</div>
         <div class="qword">${escapeHtml(d.wordEn)} · ${escapeHtml(d.nameKo)}</div>
-        <div class="qmeta">${opt.emoji} ${opt.label} — $${opt.price} · Table <span class="table">${escapeHtml(d.tableNumber || '—')}</span></div>
-        <div class="qtime">Printed by <b>${escapeHtml(d.printedBy || '—')}</b></div>
-        <div class="qtime">Fee applied: ${formatDateTime(d.feeAppliedAt)}</div>
-        <div class="qtime">Paid: ${formatDateTime(d.printedAt)}</div>
-        <div class="queue-actions">
-          <button class="qbtn open">Open</button>
-        </div>
+        ${metaLine}
+        ${timeLines}
+        ${actionsHtml}
       </div>
     `;
-    card.querySelector('.open').addEventListener('click', () => {
-      const w = window.open();
-      if (w) w.document.write('<img src="'+d.img+'" style="width:100%;max-width:500px;display:block;margin:0 auto;">');
-    });
+    const openBtn = card.querySelector('.open');
+    if (openBtn) {
+      openBtn.addEventListener('click', () => {
+        const w = window.open();
+        if (w) w.document.write('<img src="'+d.img+'" style="width:100%;max-width:500px;display:block;margin:0 auto;">');
+      });
+    }
     archiveList.appendChild(card);
   });
 }

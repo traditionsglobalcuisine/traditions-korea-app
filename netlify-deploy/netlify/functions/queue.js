@@ -49,21 +49,24 @@ exports.handler = async (event) => {
       }
       const id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       const key = 'order:' + id;
+      const isDownload = body.printType === 'download';
+      const now = Date.now();
       await store.setJSON(key, {
         name: String(body.name).slice(0, 60),
         wordEn: String(body.wordEn || '').slice(0, 40),
         wordKo: String(body.wordKo || '').slice(0, 20),
         nameKo: String(body.nameKo || '').slice(0, 60),
-        img: body.img,
-        printType: (body.printType === 'magnet') ? 'magnet' : 'card',
-        tableNumber: String(body.tableNumber || '').slice(0, 10),
-        ts: Date.now(),
-        feeApplied: false,
-        feeAppliedAt: null,
-        feeAppliedBy: null,
-        printed: false,
-        printedAt: null,
-        printedBy: null
+        img: isDownload ? '' : body.img, // don't store the full image for free downloads — keeps Blobs storage light since these never need staff review
+        printType: isDownload ? 'download' : ((body.printType === 'magnet') ? 'magnet' : 'card'),
+        tableNumber: isDownload ? '' : String(body.tableNumber || '').slice(0, 10),
+        ts: now,
+        // downloads are guest self-service — no staff step, so mark complete immediately
+        feeApplied: isDownload ? true : false,
+        feeAppliedAt: isDownload ? now : null,
+        feeAppliedBy: isDownload ? 'Guest (self-download)' : null,
+        printed: isDownload ? true : false,
+        printedAt: isDownload ? now : null,
+        printedBy: isDownload ? 'Guest (self-download)' : null
       });
       return json(200, { ok: true, key });
     }
