@@ -318,6 +318,11 @@
     width:64px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;
     border:1px solid var(--gold);
   }
+  .thumb-placeholder{
+    width:64px;height:90px;border-radius:6px;flex-shrink:0;
+    border:1px solid var(--gold);background:#f0e4d0;
+    display:flex;align-items:center;justify-content:center;font-size:24px;
+  }
   .queue-info{flex:1;min-width:0;}
   .queue-info .qname{font-weight:700;font-size:15px;color:var(--navy);}
   .queue-info .qword{font-size:12.5px;color:var(--red-soft);margin-top:2px;font-family:"NanumBrush","sans-serif";}
@@ -483,6 +488,18 @@
       <p class="hint" style="margin-top:10px;">Shown on orders you print or mark paid.</p>
       <p class="pin-error" id="hostNameError"></p>
       <button class="primary-btn" id="hostNameSubmit" style="margin-top:14px;">Continue</button>
+    </div>
+  </div>
+
+  <!-- ============ IMAGE VIEWER OVERLAY (used by staff Open/Print, avoids popup blockers) ============ -->
+  <div class="pin-overlay hidden" id="imageViewerOverlay">
+    <div class="pin-box" style="max-width:380px;">
+      <h3 id="viewerTitle">Loading…</h3>
+      <div id="viewerBody" style="min-height:120px;display:flex;align-items:center;justify-content:center;">
+        <div class="spinner"></div>
+      </div>
+      <button class="primary-btn hidden" id="viewerDownload" style="margin-top:14px;">⬇ Download to This Device</button>
+      <button class="secondary-btn" id="viewerClose">Close</button>
     </div>
   </div>
 
@@ -833,6 +850,48 @@ async function fetchQueue() {
   }
 }
 
+async function fetchOrderImage(key) {
+  const res = await fetch('/api/queue?key=' + encodeURIComponent(key));
+  if (!res.ok) throw new Error('Could not load image (' + res.status + ')');
+  const data = await res.json();
+  return data.img || '';
+}
+
+/* ---- in-page image viewer (avoids popup-blocker issues entirely) ---- */
+const imageViewerOverlay = document.getElementById('imageViewerOverlay');
+const viewerTitle = document.getElementById('viewerTitle');
+const viewerBody = document.getElementById('viewerBody');
+const viewerDownload = document.getElementById('viewerDownload');
+
+async function openImageViewer(key, name) {
+  viewerTitle.textContent = name || 'Loading…';
+  viewerBody.innerHTML = '<div class="spinner"></div>';
+  viewerDownload.classList.add('hidden');
+  imageViewerOverlay.classList.remove('hidden');
+  try {
+    const img = await fetchOrderImage(key);
+    if (!img) {
+      viewerBody.innerHTML = '<p style="font-size:13px;color:#8a7358;">No image saved for this entry.</p>';
+      return;
+    }
+    viewerBody.innerHTML = '<img src="' + img + '" style="width:100%;border-radius:8px;box-shadow:0 6px 18px rgba(16,28,44,.25);">';
+    viewerDownload.classList.remove('hidden');
+    viewerDownload.onclick = () => {
+      const a = document.createElement('a');
+      a.href = img;
+      a.download = (name || 'card').replace(/\s+/g,'_') + '-hangul.jpg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+  } catch (err) {
+    viewerBody.innerHTML = '<p style="font-size:13px;color:var(--red);">Could not load the image. Please try again.</p>';
+  }
+}
+document.getElementById('viewerClose').addEventListener('click', () => {
+  imageViewerOverlay.classList.add('hidden');
+});
+
 async function updateOrder(key, patch) {
   const res = await fetch('/api/queue?key=' + encodeURIComponent(key), {
     method: 'PATCH',
@@ -1155,7 +1214,7 @@ function renderQueueTab() {
     card.className = 'queue-card';
     const feeChecked = d.feeApplied ? 'checked' : '';
     card.innerHTML = `
-      <img src="${d.img}" alt="">
+      <div class="thumb-placeholder">${opt.emoji}</div>
       <div class="queue-info">
         <div class="qname">${escapeHtml(d.name)}</div>
         <div class="qword">${escapeHtml(d.wordEn)} · ${escapeHtml(d.nameKo)}</div>
@@ -1172,8 +1231,7 @@ function renderQueueTab() {
       </div>
     `;
     card.querySelector('.open').addEventListener('click', () => {
-      const w = window.open();
-      if (w) w.document.write('<img src="'+d.img+'" style="width:100%;max-width:500px;display:block;margin:0 auto;">');
+      openImageViewer(item.key, d.name);
     });
     const feeCheckbox = card.querySelector('.feeCheckbox');
     feeCheckbox.addEventListener('change', async () => {
@@ -1224,9 +1282,7 @@ function renderArchiveTab() {
     const isDownload = d.printType === 'download';
     const card = document.createElement('div');
     card.className = 'queue-card';
-    const imgHtml = d.img
-      ? `<img src="${d.img}" alt="">`
-      : `<div style="width:64px;height:90px;border-radius:6px;flex-shrink:0;border:1px solid var(--gold);background:#f0e4d0;display:flex;align-items:center;justify-content:center;font-size:22px;">⬇</div>`;
+    const imgHtml = `<div class="thumb-placeholder">${opt.emoji}</div>`;
     const metaLine = isDownload
       ? `<div class="qmeta">${opt.emoji} ${opt.label}</div>`
       : `<div class="qmeta">${opt.emoji} ${opt.label} — $${opt.price} · Table <span class="table">${escapeHtml(d.tableNumber || '—')}</span></div>`;
@@ -1235,7 +1291,7 @@ function renderArchiveTab() {
       : `<div class="qtime">Printed by <b>${escapeHtml(d.printedBy || '—')}</b></div>
          <div class="qtime">Fee applied: ${formatDateTime(d.feeAppliedAt)}</div>
          <div class="qtime">Paid: ${formatDateTime(d.printedAt)}</div>`;
-    const actionsHtml = d.img
+    const actionsHtml = d.hasImage
       ? `<div class="queue-actions"><button class="qbtn open">Open</button></div>`
       : '';
     card.innerHTML = `
@@ -1251,8 +1307,7 @@ function renderArchiveTab() {
     const openBtn = card.querySelector('.open');
     if (openBtn) {
       openBtn.addEventListener('click', () => {
-        const w = window.open();
-        if (w) w.document.write('<img src="'+d.img+'" style="width:100%;max-width:500px;display:block;margin:0 auto;">');
+        openImageViewer(item.key, d.name);
       });
     }
     archiveList.appendChild(card);

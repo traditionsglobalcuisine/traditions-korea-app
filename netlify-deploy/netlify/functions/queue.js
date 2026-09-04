@@ -32,11 +32,30 @@ exports.handler = async (event) => {
     const store = getStore({ name: 'print-queue', siteID, token });
 
     if (event.httpMethod === 'GET') {
+      const singleKey = event.queryStringParameters && event.queryStringParameters.key;
+
+      if (singleKey) {
+        // fetch ONE order including its full image — used only when staff
+        // actually opens/prints a specific order
+        const data = await store.get(singleKey, { type: 'json' });
+        if (!data) return json(404, { error: 'Order not found' });
+        return json(200, { key: singleKey, ...data });
+      }
+
+      // List everyone — deliberately WITHOUT the image field. Images can be
+      // a few hundred KB each; returning all of them in one response would
+      // eventually exceed Netlify's payload limit as order history grows
+      // (this is exactly what caused the "413 Payload Too Large" errors).
+      // The list only needs to be small/fast; individual images are fetched
+      // on demand via ?key= above.
       const { blobs } = await store.list({ prefix: 'order:' });
       const orders = [];
       for (const b of blobs) {
         const data = await store.get(b.key, { type: 'json' });
-        if (data) orders.push({ key: b.key, ...data });
+        if (data) {
+          const { img, ...rest } = data;
+          orders.push({ key: b.key, ...rest, hasImage: !!img });
+        }
       }
       orders.sort((a, b) => a.ts - b.ts);
       return json(200, orders);
